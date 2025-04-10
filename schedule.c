@@ -103,7 +103,7 @@ void schedule()
 	current->exitCPU=sched_clock();
 	current->burst=current->exitCPU-current->enterCPU;
 	current->enterRQ=sched_clock();
-	current->exp_burst=current->(burst+A*current->exp_burst)/(1+A);
+	current->exp_burst=(current->burst+A*current->exp_burst)/(1+A);
 
 
 	if (rq->nr_running == 1) {
