@@ -97,9 +97,9 @@ void schedule()
 	struct task_struct *next;
 	double max_waitRQ , min_exp;
 	unsigned long long time_now,tmp;
-	double max_goodness=0;
-	printf("In schedule\n");
-	print_rq();
+	double min_goodness;
+//	printf("In schedule\n");
+//	print_rq();
 	
 	current->need_reschedule = 0; /* Always make sure to reset that, in case *
 								   * we entered the scheduler because current*
@@ -129,16 +129,25 @@ void schedule()
 			min_exp=curr->exp_burst;
 		}
 	}
-
+	current->goodness=((1+current->exp_burst)/(1+min_exp))*((1+max_waitRQ)/(1+(time_now-current->enterRQ)));
+	min_goodness=current->goodness;
+	print_rq();
 
 	for(curr=rq->head->next; curr!=rq->head; curr=curr->next){
 		curr->goodness=((1+curr->exp_burst)/(1+min_exp))*((1+max_waitRQ)/(1+(time_now-curr->enterRQ)));
-
-		if (max_goodness<curr->goodness){
+		if (min_goodness >= curr->goodness){
 			next=curr;
-			max_goodness=curr->goodness;
+			min_goodness = curr->goodness;
 		}
+		printf("goodness: %f, min_goodness: %f\n", curr->goodness, min_goodness);
 	}
+	printf("to run:\n");
+	printf("goodness %f\n", next->goodness);
+	printf("burst %lld\n", next->burst);
+	printf("exp_burst %f\n", next->exp_burst);
+	printf("waitRQ %lld\n", time_now-next->enterRQ);
+	printf("max waitRQ %f\n", max_waitRQ);
+
 	next->time_slice=next->exp_burst;
 	next->enterCPU=sched_clock();
 	context_switch(next);
