@@ -12,6 +12,7 @@
 
 #define NEWTASKSLICE (NS_TO_JIFFIES(100000000))
 #define A 0.5
+#define SCHED 3 // 1 min_burst || 2 standard goodness || 3 goodness
 /* Local Globals
  * rq - This is a pointer to the runqueue that the scheduler uses.
  * current - A pointer to the current running task.
@@ -50,7 +51,7 @@ void initschedule(struct runqueue *newrq, struct task_struct *seedTask)
 	newrq->head = seedTask;
 	newrq->nr_running++;
 
-	rq=newrq;
+	// rq=newrq;
 	seedTask->exp_burst = 0;
 	seedTask->burst = 0;
 	seedTask->goodness = 0;
@@ -84,6 +85,7 @@ void print_rq () {
 	printf("\n");
 }
 
+
 /*-------------Scheduler Code Goes Below------------*/
 /* This is the beginning of the actual scheduling logic */
 
@@ -92,83 +94,113 @@ void print_rq () {
  */
 void schedule()
 {
-	static struct task_struct *nxt = NULL;
 	struct task_struct *curr;
 	struct task_struct *next;
-	double max_waitRQ , min_exp;
-	unsigned long long time_now,tmp;
+	double min_exp_burst;
+	unsigned long long max_waitRQ;
 	double min_goodness;
-//	printf("In schedule\n");
-//	print_rq();
-	
-	current->need_reschedule = 0; /* Always make sure to reset that, in case *
-								   * we entered the scheduler because current*
-								   * had requested so by setting this flag   */
-	if (rq->nr_running <= 1) {
-        // Assuming rq->head is always present and runnable (e.g., idle task or seed)
-        // Or use the external 'idle' task if appropriate
+	// printf("In schedule\n");
+	//	print_rq();
+	current->need_reschedule = 0;
+
+	if (rq->nr_running == 1) {
         context_switch(rq->head);
-		return;
-    }
-	current->exitCPU=sched_clock();	
-	current->burst += current->exitCPU-current->enterCPU;
+    }else{
+		current->need_reschedule = 0; /* Always make sure to reset that, in case *
+									* we entered the scheduler because current*
+									* had requested so by setting this flag   */
+		// next = rq->head;
+		current->exitCPU=sched_clock();	
+		current->burst = current->exitCPU - current->enterCPU; //evgala to += gia na tsekarv me apotelesmata lysewn
 
-	current->enterRQ=sched_clock();
-	current->exp_burst=(current->burst+A*current->exp_burst)/(1+A);
-	time_now=sched_clock();
-	max_waitRQ= 0;
-	min_exp=current->exp_burst;
+		current->enterRQ=sched_clock();
+		current->exp_burst=(double)(current->burst + A * (current->exp_burst)) / (double)(1+A);
 
-	
-	for(curr=rq->head->next; curr!=rq->head; curr=curr->next){
-		tmp = time_now-curr->enterRQ;
-		if(max_waitRQ < tmp){
-			max_waitRQ = tmp;
-		}
-		if(min_exp > curr->exp_burst){
-			min_exp=curr->exp_burst;
-		}
-	}
-	current->goodness=((1+current->exp_burst)/(1+min_exp))*((1+max_waitRQ)/(1+(time_now-current->enterRQ)));
-	min_goodness=current->goodness;
-	print_rq();
 
-	for(curr=rq->head->next; curr!=rq->head; curr=curr->next){
-		curr->goodness=((1+curr->exp_burst)/(1+min_exp))*((1+max_waitRQ)/(1+(time_now-curr->enterRQ)));
-		if (min_goodness >= curr->goodness){
+		curr=rq->head->next;
+		min_exp_burst=curr->exp_burst;
+		#if SCHED==1
 			next=curr;
-			min_goodness = curr->goodness;
-		}
-		printf("goodness: %f, min_goodness: %f\n", curr->goodness, min_goodness);
-	}
-	printf("to run:\n");
-	printf("goodness %f\n", next->goodness);
-	printf("burst %lld\n", next->burst);
-	printf("exp_burst %f\n", next->exp_burst);
-	printf("waitRQ %lld\n", time_now-next->enterRQ);
-	printf("max waitRQ %f\n", max_waitRQ);
+		#endif
+		curr=curr->next;
 
-	next->time_slice=next->exp_burst;
-	next->enterCPU=sched_clock();
-	context_switch(next);
-	// if (rq->nr_running == 1) {
-	// 	context_switch(rq->head);
-	// 	nxt = rq->head->next;
-	// }
-	// else {	
-	// 	curr = nxt;
-	// 	nxt = nxt->next;
-	// 	if (nxt == rq->head)    /* Do this to always skip init at the head */
-	// 		nxt = nxt->next;	/* of the queue, whenever there are other  */
-	// 							/* processes available					   */
-	// 	context_switch(curr);
-	// }//////////////////////////////////////////////////////////////////
-	if (!next) {
-        // This shouldn't happen if nr_running > 1 and loops are correct,
-        // but as a safeguard, switch to head/idle
-        context_switch(rq->head); // Or context_switch(idle);
-        return;
-    }
+		//find min exp burst
+		for(; curr!=rq->head; curr=curr->next){
+			if(min_exp_burst > curr->exp_burst){
+				min_exp_burst=curr->exp_burst;
+				#if SCHED==1
+					next=curr;
+				#endif
+			}
+		}
+
+		//find standard goodness
+		#if SCHED==2
+			curr=rq->head->next;
+
+			curr->goodness = ((1 + curr->exp_burst) / (1 + min_exp_burst));
+			min_goodness=curr->goodness;
+			next=curr;
+			curr=curr->next;
+
+			for(; curr!=rq->head; curr=curr->next){
+
+				curr->goodness = ((1 + curr->exp_burst) / (1 + min_exp_burst));
+
+				if (curr->goodness < min_goodness){
+					min_goodness=curr->goodness;
+					next=curr;
+				}
+			}
+		#endif
+
+		//find goodness
+		#if SCHED==3
+			double time_now = (double) sched_clock();
+			unsigned long long time_n_long = sched_clock();
+
+			//calculate max_wait_RQ
+			curr=rq->head->next;
+			max_waitRQ = time_n_long - curr->enterRQ;
+			for(; curr!=rq->head; curr=curr->next){
+				if(time_n_long - curr->enterRQ > max_waitRQ){
+					max_waitRQ = time_n_long - curr->enterRQ;
+				}
+			}
+
+			//calculate min goodness
+			curr=rq->head->next;
+			curr->goodness=((1 + curr->exp_burst) / (1 + min_exp_burst)) *
+				((1 + (double)max_waitRQ)/(1 + (time_now - (double)curr->enterRQ)));
+
+			min_goodness=curr->goodness;
+			next=curr;
+
+			curr=curr->next;
+			
+			for(; curr!=rq->head; curr=curr->next){
+
+				curr->goodness=((1 + curr->exp_burst) / (1 + min_exp_burst)) *
+				((1 + (double)max_waitRQ)/(1 + (time_now - (double)curr->enterRQ)));
+				
+				if (curr->goodness < min_goodness){
+					min_goodness=curr->goodness;
+					next=curr;
+				}
+			}
+		#endif
+
+
+
+		// printf("%p\n",next);		
+		if(next!=current){
+			next->enterCPU=sched_clock();
+		}else if (!next) {
+			context_switch(rq->head);
+		}
+		context_switch(next);
+	}
+	
 }
 
 
@@ -190,8 +222,10 @@ void sched_fork(struct task_struct *p)
  * for the task that is currently running.
  */
 void scheduler_tick(struct task_struct *p)
-{
+{	
+
 	schedule();
+	
 }
 
 /* wake_up_new_task
@@ -206,10 +240,10 @@ void wake_up_new_task(struct task_struct *p)
 	p->next->prev = p;
 	p->prev->next = p;
 	
-	//when created initialize enterRQ
+
+	rq->nr_running++;
 	p->enterRQ=sched_clock();
 	
-	rq->nr_running++;
 }
 
 /* activate_task
@@ -222,11 +256,11 @@ void activate_task(struct task_struct *p)
 	p->prev = rq->head;
 	p->next->prev = p;
 	p->prev->next = p;
-	p->burst=0;
-	//After finishing with I/O refresh enterRQ timestamp
+	// p->burst=0;
+
+	rq->nr_running++;
 	p->enterRQ=sched_clock();
 	
-	rq->nr_running++;
 }
 
 /* deactivate_task
