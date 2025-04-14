@@ -12,7 +12,7 @@
 
 #define NEWTASKSLICE (NS_TO_JIFFIES(100000000))
 #define A 0.5
-#define SCHED 3 // 1 min_burst || 2 standard goodness || 3 goodness
+#define SCHED 2 // 1 min_burst || 2 standard goodness || 3 goodness
 /* Local Globals
  * rq - This is a pointer to the runqueue that the scheduler uses.
  * current - A pointer to the current running task.
@@ -111,7 +111,7 @@ void schedule()
 									* had requested so by setting this flag   */
 		// next = rq->head;
 		current->exitCPU=sched_clock();	
-		current->burst = current->exitCPU - current->enterCPU; //evgala to += gia na tsekarv me apotelesmata lysewn
+		current->burst += current->exitCPU - current->enterCPU; //evgala to += gia na tsekarv me apotelesmata lysewn
 
 		current->enterRQ=sched_clock();
 		current->exp_burst=(double)(current->burst + A * (current->exp_burst)) / (double)(1+A);
@@ -195,10 +195,10 @@ void schedule()
 		// printf("%p\n",next);		
 		if(next!=current){
 			next->enterCPU=sched_clock();
+			context_switch(next);
 		}else if (!next) {
 			context_switch(rq->head);
 		}
-		context_switch(next);
 	}
 	
 }
